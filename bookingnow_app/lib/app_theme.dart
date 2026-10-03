@@ -14,8 +14,8 @@ class AppTheme {
   static const primaryLight = Color(0xFF5EEAD4); // teal 300
   static const accent = Color(0xFFF59E0B); // ámbar 500
   static const accentDark = Color(0xFFB45309); // ámbar 700
-  static const ink = Color(0xFF0F172A); // slate 900
-  static const inkSoft = Color(0xFF334155); // slate 700
+  static const ink = Color(0xFF111318); // grafito
+  static const inkSoft = Color(0xFF3A3F47);
 
   // Estados
   static const success = Color(0xFF10B981);
@@ -24,10 +24,12 @@ class AppTheme {
   static const info = Color(0xFF0EA5E9);
 
   // Superficies
-  static const surfaceLight = Color(0xFFF0FDFA); // fondo tintado teal
+  static const surfaceLight = Color(0xFFFAFAF7); // blanco cálido (hueso)
   static const cardLight = Colors.white;
-  static const surfaceDark = Color(0xFF0B1220);
-  static const cardDark = Color(0xFF162032);
+  static const surfaceDark = Color(0xFF121417); // grafito neutro
+  static const cardDark = Color(0xFF1C1F24);
+  static const chipLight = Color(0xFFEFEEE9);
+  static const chipDark = Color(0xFF262A30);
 
   /// Degradado de marca para cabeceras, splash y tarjetas destacadas.
   static const brandGradient = LinearGradient(
@@ -70,15 +72,16 @@ class AppTheme {
       seedColor: primary,
       brightness: b,
       primary: isDark ? const Color(0xFF2DD4BF) : primary,
-      onPrimary: isDark ? primaryDeep : Colors.white,
+      onPrimary: isDark ? const Color(0xFF0B1F1D) : Colors.white,
       secondary: accent,
       onSecondary: ink,
       tertiary: info,
       error: danger,
       surface: isDark ? cardDark : cardLight,
-      onSurface: isDark ? const Color(0xFFE2E8F0) : ink,
-      outline: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
-      outlineVariant: isDark ? const Color(0xFF263449) : const Color(0xFFCCFBF1),
+      onSurface: isDark ? const Color(0xFFF3F4F6) : ink,
+      surfaceContainerHighest: isDark ? chipDark : chipLight,
+      outline: isDark ? const Color(0xFF8A8F98) : const Color(0xFF6B7280),
+      outlineVariant: isDark ? const Color(0xFF2A2E35) : const Color(0xFFE8E7E1),
     );
     final base = ThemeData(
       useMaterial3: true,
@@ -116,12 +119,15 @@ class AppTheme {
         centerTitle: false,
         titleTextStyle: text.titleLarge,
       ),
+      // Tarjetas que "flotan": sin borde, sombra suave y teñida (opción 1).
       cardTheme: CardThemeData(
-        elevation: 0,
+        elevation: isDark ? 0 : 3,
+        shadowColor: ink.withValues(alpha: 0.10),
+        surfaceTintColor: Colors.transparent,
         color: scheme.surface,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
-          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: isDark ? 0.8 : 0.9)),
+          side: isDark ? BorderSide(color: scheme.outlineVariant) : BorderSide.none,
         ),
         margin: EdgeInsets.zero,
       ),
@@ -161,6 +167,7 @@ class AppTheme {
       chipTheme: base.chipTheme.copyWith(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         side: BorderSide.none,
+        backgroundColor: isDark ? chipDark : chipLight,
         selectedColor: scheme.primary.withValues(alpha: 0.18),
         labelStyle: text.labelMedium?.copyWith(fontWeight: FontWeight.w600),
       ),
@@ -169,7 +176,8 @@ class AppTheme {
         indicatorColor: scheme.primary.withValues(alpha: 0.16),
         labelTextStyle: WidgetStatePropertyAll(text.labelSmall?.copyWith(fontWeight: FontWeight.w700)),
         elevation: 3,
-        shadowColor: primaryDeep.withValues(alpha: 0.2),
+        shadowColor: ink.withValues(alpha: 0.25),
+        surfaceTintColor: Colors.transparent,
       ),
       navigationRailTheme: NavigationRailThemeData(
         backgroundColor: scheme.surface,
