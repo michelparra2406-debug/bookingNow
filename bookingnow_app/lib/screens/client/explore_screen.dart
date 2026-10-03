@@ -255,8 +255,10 @@ class _BusinessCard extends StatelessWidget {
 
   Widget _placeholder() {
     final seed = b.name.hashCode;
-    final c1 = HSLColor.fromAHSL(1, (seed % 360).toDouble(), 0.55, 0.5).toColor();
-    final c2 = HSLColor.fromAHSL(1, ((seed + 40) % 360).toDouble(), 0.6, 0.35).toColor();
+    // Variaciones dentro de la familia de la marca (teal → azul petróleo)
+    final hue = 165.0 + (seed.abs() % 45);
+    final c1 = HSLColor.fromAHSL(1, hue, 0.6, 0.42).toColor();
+    final c2 = HSLColor.fromAHSL(1, hue + 15, 0.55, 0.22).toColor();
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(

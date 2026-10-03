@@ -1,17 +1,65 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// Tema de BookingNow: limpio, claro por defecto (negocios de cualquier
-/// sector), con modo oscuro. Color primario índigo + acento verde menta.
+/// Tema de BookingNow — paleta "teal y ámbar".
+///
+/// Primario teal (confianza, válido para cualquier sector), acento ámbar
+/// (energía: avisos, pendientes, destacados), tinta azul noche para textos y
+/// fondos oscuros, superficies tintadas en lugar de blanco plano.
 class AppTheme {
-  static const primary = Color(0xFF4F46E5);
-  static const primaryDark = Color(0xFF3730A3);
-  static const accent = Color(0xFF10B981);
-  static const warning = Color(0xFFF59E0B);
+  // Marca
+  static const primary = Color(0xFF0D9488); // teal 600
+  static const primaryDark = Color(0xFF0F766E); // teal 700
+  static const primaryDeep = Color(0xFF134E4A); // teal 900
+  static const primaryLight = Color(0xFF5EEAD4); // teal 300
+  static const accent = Color(0xFFF59E0B); // ámbar 500
+  static const accentDark = Color(0xFFB45309); // ámbar 700
+  static const ink = Color(0xFF0F172A); // slate 900
+  static const inkSoft = Color(0xFF334155); // slate 700
+
+  // Estados
+  static const success = Color(0xFF10B981);
+  static const warning = accent;
   static const danger = Color(0xFFEF4444);
-  static const ink = Color(0xFF0F172A);
-  static const surfaceLight = Color(0xFFF8FAFC);
-  static const surfaceDark = Color(0xFF0F172A);
+  static const info = Color(0xFF0EA5E9);
+
+  // Superficies
+  static const surfaceLight = Color(0xFFF0FDFA); // fondo tintado teal
+  static const cardLight = Colors.white;
+  static const surfaceDark = Color(0xFF0B1220);
+  static const cardDark = Color(0xFF162032);
+
+  /// Degradado de marca para cabeceras, splash y tarjetas destacadas.
+  static const brandGradient = LinearGradient(
+    colors: [primary, primaryDeep],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  /// Degradado "hero" más luminoso (portadas sin imagen).
+  static const heroGradient = LinearGradient(
+    colors: [Color(0xFF14B8A6), primaryDark, primaryDeep],
+    stops: [0, 0.55, 1],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  /// Degradado ámbar para destacados (promos, bonos).
+  static const accentGradient = LinearGradient(
+    colors: [Color(0xFFFBBF24), accentDark],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  /// Sombra suave y teñida para tarjetas elevadas.
+  static List<BoxShadow> softShadow(Brightness b) => [
+        BoxShadow(
+          color: (b == Brightness.dark ? Colors.black : primaryDeep)
+              .withValues(alpha: b == Brightness.dark ? 0.35 : 0.08),
+          blurRadius: 18,
+          offset: const Offset(0, 6),
+        ),
+      ];
 
   static ThemeData light() => _build(Brightness.light);
   static ThemeData dark() => _build(Brightness.dark);
@@ -21,10 +69,16 @@ class AppTheme {
     final scheme = ColorScheme.fromSeed(
       seedColor: primary,
       brightness: b,
-      primary: isDark ? const Color(0xFF818CF8) : primary,
+      primary: isDark ? const Color(0xFF2DD4BF) : primary,
+      onPrimary: isDark ? primaryDeep : Colors.white,
       secondary: accent,
+      onSecondary: ink,
+      tertiary: info,
       error: danger,
-      surface: isDark ? const Color(0xFF1E293B) : Colors.white,
+      surface: isDark ? cardDark : cardLight,
+      onSurface: isDark ? const Color(0xFFE2E8F0) : ink,
+      outline: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+      outlineVariant: isDark ? const Color(0xFF263449) : const Color(0xFFCCFBF1),
     );
     final base = ThemeData(
       useMaterial3: true,
@@ -32,79 +86,122 @@ class AppTheme {
       colorScheme: scheme,
       scaffoldBackgroundColor: isDark ? surfaceDark : surfaceLight,
     );
-    final text = GoogleFonts.interTextTheme(base.textTheme);
+
+    // Titulares con Plus Jakarta Sans (más carácter), cuerpo con Inter.
+    final body = GoogleFonts.interTextTheme(base.textTheme);
+    final display = GoogleFonts.plusJakartaSansTextTheme(base.textTheme);
+    final text = body.copyWith(
+      displayLarge: display.displayLarge?.copyWith(fontWeight: FontWeight.w800),
+      displayMedium: display.displayMedium?.copyWith(fontWeight: FontWeight.w800),
+      displaySmall: display.displaySmall?.copyWith(fontWeight: FontWeight.w800),
+      headlineLarge: display.headlineLarge?.copyWith(fontWeight: FontWeight.w800, letterSpacing: -0.5),
+      headlineMedium: display.headlineMedium?.copyWith(fontWeight: FontWeight.w800, letterSpacing: -0.5),
+      headlineSmall: display.headlineSmall?.copyWith(fontWeight: FontWeight.w800, letterSpacing: -0.3),
+      titleLarge: display.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+      titleMedium: display.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+      titleSmall: display.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+    ).apply(
+      bodyColor: scheme.onSurface,
+      displayColor: scheme.onSurface,
+    );
+
+    final radius12 = BorderRadius.circular(12);
     return base.copyWith(
       textTheme: text,
       appBarTheme: AppBarTheme(
         backgroundColor: isDark ? surfaceDark : surfaceLight,
-        foregroundColor: isDark ? Colors.white : ink,
+        foregroundColor: scheme.onSurface,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
-        titleTextStyle: text.titleLarge?.copyWith(
-          fontWeight: FontWeight.w700,
-          color: isDark ? Colors.white : ink,
-        ),
+        titleTextStyle: text.titleLarge,
       ),
       cardTheme: CardThemeData(
         elevation: 0,
         color: scheme.surface,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: isDark ? 0.8 : 0.9)),
         ),
         margin: EdgeInsets.zero,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: scheme.surface,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: scheme.outlineVariant),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: scheme.outlineVariant),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: scheme.primary, width: 2),
-        ),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        border: OutlineInputBorder(borderRadius: radius12, borderSide: BorderSide(color: scheme.outlineVariant)),
+        enabledBorder: OutlineInputBorder(borderRadius: radius12, borderSide: BorderSide(color: scheme.outlineVariant)),
+        focusedBorder: OutlineInputBorder(borderRadius: radius12, borderSide: BorderSide(color: scheme.primary, width: 2)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          minimumSize: const Size.fromHeight(50),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12)),
-          textStyle: text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+          minimumSize: const Size.fromHeight(52),
+          shape: const StadiumBorder(),
+          textStyle: text.titleSmall,
+          elevation: 0,
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          minimumSize: const Size.fromHeight(50),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12)),
+          minimumSize: const Size.fromHeight(52),
+          shape: const StadiumBorder(),
+          side: BorderSide(color: scheme.primary.withValues(alpha: 0.5), width: 1.5),
+          textStyle: text.titleSmall,
         ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(textStyle: text.labelLarge?.copyWith(fontWeight: FontWeight.w700)),
+      ),
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: scheme.primary,
+        foregroundColor: scheme.onPrimary,
+        shape: const StadiumBorder(),
+        elevation: 4,
       ),
       chipTheme: base.chipTheme.copyWith(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         side: BorderSide.none,
+        selectedColor: scheme.primary.withValues(alpha: 0.18),
+        labelStyle: text.labelMedium?.copyWith(fontWeight: FontWeight.w600),
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: scheme.surface,
-        indicatorColor: scheme.primary.withValues(alpha: 0.15),
-        labelTextStyle: WidgetStatePropertyAll(
-            text.labelSmall?.copyWith(fontWeight: FontWeight.w600)),
+        indicatorColor: scheme.primary.withValues(alpha: 0.16),
+        labelTextStyle: WidgetStatePropertyAll(text.labelSmall?.copyWith(fontWeight: FontWeight.w700)),
+        elevation: 3,
+        shadowColor: primaryDeep.withValues(alpha: 0.2),
       ),
       navigationRailTheme: NavigationRailThemeData(
         backgroundColor: scheme.surface,
-        indicatorColor: scheme.primary.withValues(alpha: 0.15),
+        indicatorColor: scheme.primary.withValues(alpha: 0.16),
       ),
-      dividerTheme: DividerThemeData(
-          color: scheme.outlineVariant.withValues(alpha: 0.5), space: 1),
-      snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating),
+      tabBarTheme: TabBarThemeData(
+        labelColor: scheme.primary,
+        unselectedLabelColor: scheme.outline,
+        indicatorColor: scheme.primary,
+        labelStyle: text.titleSmall,
+        unselectedLabelStyle: text.titleSmall?.copyWith(fontWeight: FontWeight.w500),
+      ),
+      dividerTheme: DividerThemeData(color: scheme.outlineVariant.withValues(alpha: 0.7), space: 1),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: ink,
+        contentTextStyle: text.bodyMedium?.copyWith(color: Colors.white),
+        shape: RoundedRectangleBorder(borderRadius: radius12),
+      ),
+      dialogTheme: DialogThemeData(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: scheme.surface,
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: scheme.surface,
+        shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+        showDragHandle: true,
+      ),
+      listTileTheme: ListTileThemeData(
+        shape: RoundedRectangleBorder(borderRadius: radius12),
+      ),
     );
   }
 }
@@ -113,18 +210,18 @@ class AppTheme {
 Color bookingStatusColor(String status) {
   switch (status) {
     case 'pending':
-      return AppTheme.warning;
+      return AppTheme.accent;
     case 'confirmed':
       return AppTheme.primary;
     case 'checked_in':
-      return const Color(0xFF0EA5E9);
+      return AppTheme.info;
     case 'completed':
-      return AppTheme.accent;
+      return AppTheme.success;
     case 'cancelled':
-      return Colors.grey;
+      return const Color(0xFF94A3B8);
     case 'no_show':
       return AppTheme.danger;
     default:
-      return Colors.grey;
+      return const Color(0xFF94A3B8);
   }
 }

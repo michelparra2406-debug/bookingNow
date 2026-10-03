@@ -5,6 +5,7 @@ import '../../models/models.dart';
 import '../../services/app_session.dart';
 import '../../utils/format.dart';
 import '../../utils/friendly_errors.dart';
+import '../../widgets/app_logo.dart';
 import '../../widgets/common.dart';
 import 'agenda_screen.dart';
 import 'booking_sheet.dart';
@@ -140,6 +141,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     child: ListView(
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
                       children: [
+                        _welcomeHeader(t, b),
+                        const SizedBox(height: 16),
                         if (!b.isPublished) _publishBanner(t),
                         _quickActions(t),
                         const SizedBox(height: 16),
@@ -345,6 +348,52 @@ class _DashboardScreenState extends State<DashboardScreen> {
           StatusChip(b.status),
         ]),
       ),
+    );
+  }
+}
+
+/// Cabecera de bienvenida con degradado de marca y resumen del día.
+extension _DashboardHeader on _DashboardScreenState {
+  Widget _welcomeHeader(ThemeData t, Business b) {
+    final today = _today.where((x) => x.status != 'cancelled').length;
+    final next = _today.where((x) => x.isActive && x.endsAt.isAfter(DateTime.now())).toList();
+    return BrandHeader(
+      borderRadius: BorderRadius.circular(24),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Hola, ${session.activeMembership?.displayName.split(' ').first ?? ''}',
+            style: t.textTheme.titleMedium?.copyWith(color: Colors.white70)),
+        const SizedBox(height: 4),
+        Text(
+          today == 0
+              ? 'Hoy no tienes ${session.bookingLabel.toLowerCase()}s'
+              : 'Hoy tienes $today ${session.bookingLabel.toLowerCase()}${today == 1 ? '' : 's'}',
+          style: t.textTheme.headlineSmall?.copyWith(color: Colors.white),
+        ),
+        if (next.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.schedule, color: AppTheme.accent, size: 18),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  'Siguiente: ${Fmt.time(next.first.startsAt)} · ${next.first.customerName ?? ''}'
+                  '${next.first.servicesSummary != null ? ' · ${next.first.servicesSummary}' : ''}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: t.textTheme.bodyMedium?.copyWith(color: Colors.white, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ]),
+          ),
+        ],
+      ]),
     );
   }
 }

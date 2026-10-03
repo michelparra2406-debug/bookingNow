@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../app_theme.dart';
+import '../../widgets/app_logo.dart';
 import '../../config.dart';
 import '../../services/app_session.dart';
 import '../../services/push_service.dart';
@@ -40,19 +40,8 @@ class AuthHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     return Column(children: [
-      Container(
-        width: 72,
-        height: 72,
-        decoration: BoxDecoration(
-          color: AppTheme.primary,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: const Icon(Icons.event_available, color: Colors.white, size: 40),
-      ),
-      const SizedBox(height: 14),
-      Text('BookingNow',
-          style: t.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
-      const SizedBox(height: 4),
+      const BnLogo(markSize: 64, vertical: true),
+      const SizedBox(height: 6),
       Text(subtitle ?? 'Reservas para cualquier servicio',
           style: t.textTheme.bodyMedium?.copyWith(color: t.colorScheme.outline),
           textAlign: TextAlign.center),

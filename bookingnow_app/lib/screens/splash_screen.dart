@@ -5,6 +5,7 @@ import '../config.dart';
 import '../l10n/gen/app_localizations.dart';
 import '../services/app_session.dart';
 import '../services/push_service.dart';
+import '../widgets/app_logo.dart';
 import 'auth/login_screen.dart';
 import 'business/business_shell.dart';
 import 'client/client_shell.dart';
@@ -46,38 +47,47 @@ class _SplashScreenState extends State<SplashScreen> {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     return Scaffold(
-      backgroundColor: AppTheme.ink,
-      body: Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(
-            width: 84,
-            height: 84,
-            decoration: BoxDecoration(
-              color: AppTheme.primary,
-              borderRadius: BorderRadius.circular(24),
+      body: Container(
+        decoration: const BoxDecoration(gradient: AppTheme.heroGradient),
+        child: Stack(children: [
+          const Positioned(
+            right: -60,
+            bottom: -60,
+            child: Opacity(
+              opacity: 0.10,
+              child: BnLogoMark(size: 320, withBackground: false, dotColor: Colors.white),
             ),
-            child: const Icon(Icons.event_available, color: Colors.white, size: 48),
           ),
-          const SizedBox(height: 20),
-          Text(l.appName,
-              style: const TextStyle(
-                  color: Colors.white, fontSize: 28, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 8),
-          const Text('Reservas para cualquier servicio',
-              style: TextStyle(color: Colors.white70)),
-          const SizedBox(height: 32),
-          const SizedBox(
-              width: 24, height: 24,
-              child: CircularProgressIndicator(color: Colors.white70, strokeWidth: 2)),
-          if (!AppConfig.isConfigured) ...[
-            const SizedBox(height: 32),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Text(l.notConfigured,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: AppTheme.warning, fontSize: 12)),
-            ),
-          ],
+          Center(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const BnLogoMark(size: 96, withBackground: false),
+              const SizedBox(height: 22),
+              Text.rich(
+                const TextSpan(children: [
+                  TextSpan(text: 'Booking'),
+                  TextSpan(text: 'Now', style: TextStyle(color: AppTheme.primaryLight)),
+                ]),
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    color: Colors.white, fontWeight: FontWeight.w800, letterSpacing: -0.8),
+              ),
+              const SizedBox(height: 6),
+              const Text('Reservas para cualquier servicio',
+                  style: TextStyle(color: Colors.white70)),
+              const SizedBox(height: 36),
+              const SizedBox(
+                  width: 22, height: 22,
+                  child: CircularProgressIndicator(color: Colors.white70, strokeWidth: 2)),
+              if (!AppConfig.isConfigured) ...[
+                const SizedBox(height: 32),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32),
+                  child: Text(l.notConfigured,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Color(0xFFFDE68A), fontSize: 12)),
+                ),
+              ],
+            ]),
+          ),
         ]),
       ),
     );

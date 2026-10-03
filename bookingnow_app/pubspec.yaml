@@ -31,6 +31,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_launcher_icons: ^0.14.1
+  flutter_native_splash: ^2.4.1
 
 flutter:
   uses-material-design: true
@@ -41,7 +42,20 @@ flutter_launcher_icons:
   ios: true
   web:
     generate: true
+    background_color: "#0D9488"
+    theme_color: "#0D9488"
   remove_alpha_ios: true
   image_path: "assets/icon/icon.png"
-  adaptive_icon_background: "#0F172A"
+  adaptive_icon_background: "#0D9488"
   adaptive_icon_foreground: "assets/icon/icon_foreground.png"
+  adaptive_icon_monochrome: "assets/icon/icon_foreground.png"
+
+flutter_native_splash:
+  color: "#0D9488"
+  color_dark: "#0B1220"
+  image: "assets/splash/splash_logo.png"
+  android_12:
+    color: "#0D9488"
+    color_dark: "#0B1220"
+    image: "assets/splash/splash_logo_a12.png"
+  web: false
