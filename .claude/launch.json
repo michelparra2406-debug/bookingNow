@@ -4,8 +4,18 @@
     {
       "name": "web-admin",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["tools/serve_web.js"],
+      "runtimeArgs": [
+        "tools/serve_web.js"
+      ],
       "port": 8787
+    },
+    {
+      "name": "web-preview",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "tools/serve_preview.js"
+      ],
+      "port": 8788
     }
   ]
 }

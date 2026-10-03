@@ -237,6 +237,10 @@ class MaxWidth extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Align(
         alignment: Alignment.topCenter,
+        // heightFactor: 1 → el Align toma la altura de su hijo. Sin él se
+        // expandiría a todo el alto disponible y, usado en bottomNavigationBar,
+        // ocuparía la pantalla entera dejando el body sin espacio.
+        heightFactor: 1,
         child: ConstrainedBox(
             constraints: BoxConstraints(maxWidth: maxWidth), child: child),
       );
