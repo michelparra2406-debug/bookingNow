@@ -201,7 +201,31 @@ class _BusinessCard extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          SizedBox(height: 150, child: _cover()),
+          SizedBox(
+            height: 150,
+            child: Stack(fit: StackFit.expand, children: [
+              _cover(),
+              if (b.photosCount > 1)
+                Positioned(
+                  right: 10,
+                  bottom: 10,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.photo_library_outlined, size: 13, color: Colors.white),
+                      const SizedBox(width: 4),
+                      Text('${b.photosCount}',
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+                    ]),
+                  ),
+                ),
+            ]),
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -209,6 +233,11 @@ class _BusinessCard extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+              if ((b.tagline ?? '').isNotEmpty)
+                Text(b.tagline!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: t.textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic)),
               if (subtitle.isNotEmpty) ...[
                 const SizedBox(height: 2),
                 Text(subtitle,

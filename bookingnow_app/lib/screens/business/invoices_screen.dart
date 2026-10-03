@@ -158,7 +158,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                     color: AppTheme.warning,
                     action: TextButton(
                       onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => const SettingsScreen(initialTab: 1))),
+                          builder: (_) => const SettingsScreen(initialTab: 2))),
                       child: const Text('Ir a Ajustes → Datos fiscales'),
                     ),
                   ),

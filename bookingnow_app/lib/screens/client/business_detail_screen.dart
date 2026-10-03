@@ -10,7 +10,8 @@ import '../../utils/friendly_errors.dart';
 import '../../widgets/common.dart';
 import 'booking_flow_screen.dart';
 
-/// Ficha pública de un negocio: servicios, equipo, bonos y opiniones.
+/// Ficha pública de un negocio: galería, servicios, equipo, bonos, opiniones
+/// e información práctica (horario, comodidades, pago, redes, ubicación).
 class BusinessDetailScreen extends StatefulWidget {
   final String businessId;
   const BusinessDetailScreen({super.key, required this.businessId});
@@ -21,7 +22,7 @@ class BusinessDetailScreen extends StatefulWidget {
 class _BusinessDetailScreenState extends State<BusinessDetailScreen>
     with SingleTickerProviderStateMixin {
   final data = AppSession.instance.data;
-  late final TabController _tabs = TabController(length: 4, vsync: this);
+  late final TabController _tabs = TabController(length: 5, vsync: this);
 
   Business? _biz;
   List<Location> _locations = [];
@@ -30,6 +31,8 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen>
   List<Member> _members = [];
   List<Review> _reviews = [];
   List<Package> _packages = [];
+  List<BusinessPhoto> _photos = [];
+  List<PublicHours> _hours = [];
   bool _loading = true;
   String? _error;
 
@@ -43,6 +46,16 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen>
   void dispose() {
     _tabs.dispose();
     super.dispose();
+  }
+
+  /// Galería y horario dependen de la migración 002: si aún no está aplicada
+  /// (tabla o RPC inexistente) devolvemos listas vacías sin romper la ficha.
+  static Future<List<T>> _tolerant<T>(Future<List<T>> f) async {
+    try {
+      return await f;
+    } catch (_) {
+      return <T>[];
+    }
   }
 
   Future<void> _load() async {
@@ -60,6 +73,8 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen>
         data.fetchBookableMembers(id),
         data.fetchReviews(id),
         data.fetchPackages(id),
+        _tolerant(data.fetchPhotos(id)),
+        _tolerant(data.fetchPublicHours(id)),
       ]);
       if (!mounted) return;
       final biz = results[0] as Business?;
@@ -75,6 +90,8 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen>
         _members = results[4] as List<Member>;
         _reviews = results[5] as List<Review>;
         _packages = results[6] as List<Package>;
+        _photos = results[7] as List<BusinessPhoto>;
+        _hours = results[8] as List<PublicHours>;
       });
     } catch (e) {
       if (mounted) setState(() => _error = friendlyError(e));
@@ -83,7 +100,7 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen>
     }
   }
 
-  // ---------- Acciones ----------
+  // ---------- Derivados ----------
 
   String? get _address {
     final loc = _locations.isEmpty ? null : _locations.first;
@@ -101,6 +118,31 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen>
     return alt.isEmpty ? null : alt.join(', ');
   }
 
+  String? get _phone {
+    final b = _biz!;
+    final p = (b.phone ?? '').isNotEmpty
+        ? b.phone
+        : (_locations.isEmpty ? null : _locations.first.phone);
+    return (p ?? '').isEmpty ? null : p;
+  }
+
+  /// Portada + fotos de la galería, sin repetir la portada si coincide con
+  /// la primera foto.
+  List<_GalleryItem> get _gallery {
+    final b = _biz!;
+    final cover = b.coverUrl;
+    final items = <_GalleryItem>[
+      for (final p in _photos)
+        if (p.url.isNotEmpty) _GalleryItem(p.url, p.caption),
+    ];
+    if (cover != null && cover.isNotEmpty && (items.isEmpty || items.first.url != cover)) {
+      items.insert(0, _GalleryItem(cover, null));
+    }
+    return items;
+  }
+
+  // ---------- Acciones ----------
+
   Future<void> _openUrl(Uri uri) async {
     try {
       final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -111,14 +153,40 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen>
   }
 
   void _directions() {
-    final q = Uri.encodeComponent('${_biz!.name}, ${_address ?? ''}');
+    final b = _biz!;
+    final q = b.lat != null && b.lng != null
+        ? '${b.lat},${b.lng}'
+        : Uri.encodeComponent('${b.name}, ${_address ?? ''}');
     _openUrl(Uri.parse('https://www.google.com/maps/search/?api=1&query=$q'));
   }
 
   void _call() {
-    final phone = _biz!.phone ?? (_locations.isEmpty ? null : _locations.first.phone);
-    if (phone == null || phone.isEmpty) return;
+    final phone = _phone;
+    if (phone == null) return;
     _openUrl(Uri(scheme: 'tel', path: phone.replaceAll(' ', '')));
+  }
+
+  void _openWeb(String site) =>
+      _openUrl(Uri.parse(site.startsWith('http') ? site : 'https://$site'));
+
+  void _openHandle(String base, String handle) {
+    final h = handle.trim().replaceAll('@', '');
+    _openUrl(Uri.parse(h.startsWith('http') ? h : '$base$h'));
+  }
+
+  void _whatsapp(String number) {
+    final digits = number.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) return;
+    _openUrl(Uri.parse('https://wa.me/$digits'));
+  }
+
+  void _openViewer(int index) {
+    final items = _gallery;
+    if (items.isEmpty) return;
+    Navigator.of(context).push(MaterialPageRoute(
+      fullscreenDialog: true,
+      builder: (_) => _PhotoViewer(items: items, initialIndex: index),
+    ));
   }
 
   void _book({Service? initial}) {
@@ -153,17 +221,21 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen>
     }
     final b = _biz!;
     final t = Theme.of(context);
-    final hasPhone = (b.phone ?? '').isNotEmpty ||
-        (_locations.isNotEmpty && (_locations.first.phone ?? '').isNotEmpty);
+    final gallery = _gallery;
+    final status = _OpenStatus.compute(_hours);
 
     return Scaffold(
       body: MaxWidth(
         child: NestedScrollView(
           headerSliverBuilder: (_, __) => [
             SliverAppBar(
-              expandedHeight: 220,
+              expandedHeight: gallery.isEmpty ? 200 : 260,
               pinned: true,
-              flexibleSpace: FlexibleSpaceBar(background: _cover(b)),
+              flexibleSpace: FlexibleSpaceBar(
+                background: gallery.isEmpty
+                    ? _gradient(b)
+                    : _Gallery(items: gallery, onTap: _openViewer),
+              ),
             ),
             SliverToBoxAdapter(
               child: Padding(
@@ -180,26 +252,50 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen>
                         Text(b.name,
                             style: t.textTheme.headlineSmall
                                 ?.copyWith(fontWeight: FontWeight.w800)),
-                        if (b.sectorName != null)
-                          Text(b.sectorName!,
-                              style: t.textTheme.bodyMedium
-                                  ?.copyWith(color: t.colorScheme.outline)),
+                        if ((b.tagline ?? '').isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(b.tagline!,
+                                style: t.textTheme.bodyMedium?.copyWith(
+                                    fontStyle: FontStyle.italic,
+                                    color: t.colorScheme.outline)),
+                          ),
                         const SizedBox(height: 4),
                         Row(children: [
                           const Icon(Icons.star_rounded, size: 18, color: AppTheme.warning),
                           const SizedBox(width: 4),
-                          Text(
-                            b.ratingCount == 0
-                                ? 'Sin valoraciones todavía'
-                                : '${b.ratingAvg.toStringAsFixed(1)} · ${b.ratingCount} opiniones',
-                            style: t.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+                          Flexible(
+                            child: Text(
+                              b.ratingCount == 0
+                                  ? 'Sin valoraciones todavía'
+                                  : '${b.ratingAvg.toStringAsFixed(1)} · ${b.ratingCount} opiniones',
+                              style: t.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+                            ),
                           ),
                         ]),
+                        if (b.sectorName != null)
+                          Text(b.sectorName!,
+                              style: t.textTheme.bodySmall
+                                  ?.copyWith(color: t.colorScheme.outline)),
                       ]),
                     ),
                   ]),
+                  if (status != null) ...[
+                    const SizedBox(height: 10),
+                    Row(children: [
+                      Icon(Icons.schedule,
+                          size: 18, color: status.open ? AppTheme.success : AppTheme.danger),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(status.label,
+                            style: t.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: status.open ? AppTheme.success : AppTheme.danger)),
+                      ),
+                    ]),
+                  ],
                   if (_address != null) ...[
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
                     Row(children: [
                       Icon(Icons.place_outlined, size: 18, color: t.colorScheme.outline),
                       const SizedBox(width: 6),
@@ -214,26 +310,23 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen>
                         label: const Text('Cómo llegar'),
                         onPressed: _directions,
                       ),
-                    if (hasPhone)
+                    if (_phone != null)
                       ActionChip(
                         avatar: const Icon(Icons.call_outlined, size: 18),
                         label: const Text('Llamar'),
                         onPressed: _call,
                       ),
-                    if ((b.website ?? '').isNotEmpty)
+                    if ((b.whatsapp ?? '').isNotEmpty)
                       ActionChip(
-                        avatar: const Icon(Icons.language, size: 18),
-                        label: const Text('Web'),
-                        onPressed: () => _openUrl(Uri.parse(
-                            b.website!.startsWith('http') ? b.website! : 'https://${b.website}')),
+                        avatar: const Icon(Icons.chat_outlined, size: 18),
+                        label: const Text('WhatsApp'),
+                        onPressed: () => _whatsapp(b.whatsapp!),
                       ),
-                    if ((b.instagram ?? '').isNotEmpty)
-                      ActionChip(
-                        avatar: const Icon(Icons.camera_alt_outlined, size: 18),
-                        label: const Text('Instagram'),
-                        onPressed: () => _openUrl(Uri.parse(
-                            'https://instagram.com/${b.instagram!.replaceAll('@', '')}')),
-                      ),
+                    ActionChip(
+                      avatar: const Icon(Icons.info_outline, size: 18),
+                      label: const Text('Más info'),
+                      onPressed: () => _tabs.animateTo(4),
+                    ),
                   ]),
                   if ((b.description ?? '').isNotEmpty) ...[
                     const SizedBox(height: 12),
@@ -254,6 +347,7 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen>
                     Tab(text: 'Equipo (${_members.length})'),
                     Tab(text: 'Bonos (${_packages.length})'),
                     Tab(text: 'Opiniones (${_reviews.length})'),
+                    const Tab(text: 'Info'),
                   ],
                 ),
                 t.scaffoldBackgroundColor,
@@ -265,6 +359,7 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen>
             _teamTab(t),
             _packagesTab(t),
             _reviewsTab(t),
+            _infoTab(t, status),
           ]),
         ),
       ),
@@ -280,18 +375,6 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen>
         ),
       ),
     );
-  }
-
-  Widget _cover(Business b) {
-    final url = b.coverUrl;
-    if (url != null && url.isNotEmpty) {
-      return CachedNetworkImage(
-        imageUrl: url,
-        fit: BoxFit.cover,
-        errorWidget: (_, __, ___) => _gradient(b),
-      );
-    }
-    return _gradient(b);
   }
 
   Widget _gradient(Business b) {
@@ -402,25 +485,51 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen>
 
   // ---------- Equipo ----------
 
+  static String _initials(String name) {
+    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts.first[0].toUpperCase();
+    return (parts.first[0] + parts.last[0]).toUpperCase();
+  }
+
   Widget _teamTab(ThemeData t) {
     if (_members.isEmpty) {
       return const EmptyView(icon: Icons.badge_outlined, title: 'Equipo no publicado');
     }
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 200,
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
+        mainAxisExtent: 150,
+      ),
       itemCount: _members.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
       itemBuilder: (_, i) {
         final m = _members[i];
         return Card(
-          child: ListTile(
-            leading: AvatarCircle(
-              url: m.avatarUrl,
-              initials: m.displayName.isEmpty ? '?' : m.displayName[0].toUpperCase(),
-              color: hexColor(m.color),
-            ),
-            title: Text(m.displayName, style: const TextStyle(fontWeight: FontWeight.w600)),
-            subtitle: (m.title ?? '').isEmpty ? null : Text(m.title!),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              AvatarCircle(
+                url: m.avatarUrl,
+                initials: _initials(m.displayName),
+                color: hexColor(m.color),
+                radius: 28,
+              ),
+              const SizedBox(height: 10),
+              Text(m.displayName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+              if ((m.title ?? '').isNotEmpty)
+                Text(m.title!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: t.textTheme.bodySmall?.copyWith(color: t.colorScheme.outline)),
+            ]),
           ),
         );
       },
@@ -563,7 +672,505 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen>
       },
     );
   }
+
+  // ---------- Información ----------
+
+  Widget _infoTab(ThemeData t, _OpenStatus? status) {
+    final b = _biz!;
+    final amenities = [
+      for (final id in b.amenities)
+        for (final a in amenityCatalog)
+          if (a.id == id) a,
+    ];
+    final payments = [
+      for (final id in b.paymentMethods)
+        if (paymentMethodLabels.containsKey(id)) paymentMethodLabels[id]!,
+    ];
+    final contact = <Widget>[
+      if ((b.instagram ?? '').isNotEmpty)
+        _contactChip(Icons.camera_alt_outlined, 'Instagram',
+            () => _openHandle('https://instagram.com/', b.instagram!)),
+      if ((b.facebook ?? '').isNotEmpty)
+        _contactChip(Icons.facebook, 'Facebook',
+            () => _openHandle('https://facebook.com/', b.facebook!)),
+      if ((b.tiktok ?? '').isNotEmpty)
+        _contactChip(Icons.music_note_outlined, 'TikTok',
+            () => _openHandle('https://tiktok.com/@', b.tiktok!)),
+      if ((b.whatsapp ?? '').isNotEmpty)
+        _contactChip(Icons.chat_outlined, 'WhatsApp', () => _whatsapp(b.whatsapp!)),
+      if ((b.website ?? '').isNotEmpty)
+        _contactChip(Icons.language, 'Web', () => _openWeb(b.website!)),
+      if (_phone != null) _contactChip(Icons.call_outlined, 'Llamar', _call),
+      if ((b.email ?? '').isNotEmpty)
+        _contactChip(Icons.mail_outline, 'Email',
+            () => _openUrl(Uri(scheme: 'mailto', path: b.email!))),
+    ];
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      children: [
+        _infoCard(t, Icons.schedule, 'Horario', _hoursTable(t, status)),
+        if (amenities.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _infoCard(
+            t,
+            Icons.spa_outlined,
+            'Comodidades',
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              for (final a in amenities)
+                Chip(
+                  avatar: Icon(_amenityIcon(a.id), size: 18, color: t.colorScheme.primary),
+                  label: Text(a.label),
+                ),
+            ]),
+          ),
+        ],
+        if (payments.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _infoCard(
+            t,
+            Icons.payments_outlined,
+            'Formas de pago',
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              for (final p in payments) Chip(label: Text(p)),
+            ]),
+          ),
+        ],
+        if (contact.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _infoCard(t, Icons.alternate_email, 'Redes y contacto',
+              Wrap(spacing: 8, runSpacing: 8, children: contact)),
+        ],
+        if (_address != null) ...[
+          const SizedBox(height: 12),
+          _infoCard(t, Icons.place_outlined, 'Ubicación', _locationBlock(t, b)),
+        ],
+      ],
+    );
+  }
+
+  Widget _contactChip(IconData icon, String label, VoidCallback onTap) =>
+      ActionChip(avatar: Icon(icon, size: 18), label: Text(label), onPressed: onTap);
+
+  Widget _infoCard(ThemeData t, IconData icon, String title, Widget child) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            Icon(icon, size: 20, color: t.colorScheme.primary),
+            const SizedBox(width: 8),
+            Text(title, style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+          ]),
+          const SizedBox(height: 12),
+          child,
+        ]),
+      ),
+    );
+  }
+
+  Widget _hoursTable(ThemeData t, _OpenStatus? status) {
+    if (_hours.isEmpty) {
+      return Text('Horario no publicado. Consulta disponibilidad al reservar.',
+          style: t.textTheme.bodyMedium?.copyWith(color: t.colorScheme.outline));
+    }
+    final today = DateTime.now().weekday % 7; // 0 = domingo
+    final byDay = {for (final h in _hours) h.weekday: h};
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      if (status != null)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Text(status.label,
+              style: t.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: status.open ? AppTheme.success : AppTheme.danger)),
+        ),
+      for (final d in const [1, 2, 3, 4, 5, 6, 0])
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          decoration: BoxDecoration(
+            color: d == today ? t.colorScheme.primary.withValues(alpha: 0.10) : null,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(children: [
+            Expanded(
+              child: Text(Fmt.weekdaysLong[d],
+                  style: t.textTheme.bodyMedium?.copyWith(
+                      fontWeight: d == today ? FontWeight.w700 : FontWeight.w500)),
+            ),
+            Text(
+              byDay[d] == null ? 'Cerrado' : '${byDay[d]!.opens} – ${byDay[d]!.closes}',
+              style: t.textTheme.bodyMedium?.copyWith(
+                  fontWeight: d == today ? FontWeight.w700 : FontWeight.w500,
+                  color: byDay[d] == null ? t.colorScheme.outline : null),
+            ),
+          ]),
+        ),
+    ]);
+  }
+
+  Widget _locationBlock(ThemeData t, Business b) {
+    final hasCoords = b.lat != null && b.lng != null;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      if (hasCoords)
+        Container(
+          height: 120,
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            gradient: LinearGradient(
+              colors: [
+                t.colorScheme.primary.withValues(alpha: 0.18),
+                t.colorScheme.primary.withValues(alpha: 0.06),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+          child: Stack(alignment: Alignment.center, children: [
+            Icon(Icons.map_outlined, size: 56, color: t.colorScheme.primary.withValues(alpha: 0.35)),
+            Icon(Icons.place, size: 32, color: t.colorScheme.primary),
+          ]),
+        ),
+      Text(_address!, style: t.textTheme.bodyMedium),
+      const SizedBox(height: 10),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: FilledButton.tonalIcon(
+          style: FilledButton.styleFrom(minimumSize: const Size(0, 40)),
+          onPressed: _directions,
+          icon: const Icon(Icons.directions_outlined, size: 18),
+          label: const Text('Cómo llegar'),
+        ),
+      ),
+    ]);
+  }
 }
+
+/// Iconos de comodidades como constantes `Icons.*` (el tree-shaking de
+/// iconos exige code points constantes; `amenityCatalog` solo guarda el int).
+const _amenityIcons = <String, IconData>{
+  'wifi': Icons.wifi,
+  'parking': Icons.local_parking,
+  'accessible': Icons.accessible,
+  'card': Icons.credit_card,
+  'online_payment': Icons.credit_card,
+  'kids': Icons.child_care,
+  'pets': Icons.pets,
+  'air_conditioning': Icons.ac_unit,
+  'home_service': Icons.home,
+  'late_hours': Icons.schedule,
+};
+
+IconData _amenityIcon(String id) => _amenityIcons[id] ?? Icons.check_circle_outline;
+
+// ============================================================ Horario
+
+/// Estado "abierto/cerrado ahora" calculado con la hora local.
+class _OpenStatus {
+  final bool open;
+  final String label;
+  const _OpenStatus(this.open, this.label);
+
+  static int? _minutes(String hhmm) {
+    final p = hhmm.split(':');
+    if (p.length < 2) return null;
+    final h = int.tryParse(p[0]);
+    final m = int.tryParse(p[1]);
+    if (h == null || m == null) return null;
+    return h * 60 + m;
+  }
+
+  static _OpenStatus? compute(List<PublicHours> hours) {
+    if (hours.isEmpty) return null;
+    final now = DateTime.now();
+    final today = now.weekday % 7;
+    final nowMin = now.hour * 60 + now.minute;
+    final h = hours.where((e) => e.weekday == today).firstOrNull;
+    if (h == null) return const _OpenStatus(false, 'Cerrado hoy');
+    final opens = _minutes(h.opens);
+    final closes = _minutes(h.closes);
+    if (opens == null || closes == null) return null;
+    if (nowMin >= opens && nowMin < closes) {
+      return _OpenStatus(true, 'Abierto ahora · cierra a las ${h.closes}');
+    }
+    if (nowMin < opens) return _OpenStatus(false, 'Cerrado ahora · abre a las ${h.opens}');
+    return const _OpenStatus(false, 'Cerrado ahora');
+  }
+}
+
+// ============================================================ Galería
+
+class _GalleryItem {
+  final String url;
+  final String? caption;
+  const _GalleryItem(this.url, this.caption);
+}
+
+/// Carrusel de portada: PageView con degradado inferior, indicador de
+/// página, contador "1/5" y flechas (útiles con ratón en escritorio).
+class _Gallery extends StatefulWidget {
+  final List<_GalleryItem> items;
+  final ValueChanged<int> onTap;
+  const _Gallery({required this.items, required this.onTap});
+  @override
+  State<_Gallery> createState() => _GalleryState();
+}
+
+class _GalleryState extends State<_Gallery> {
+  final _controller = PageController();
+  int _index = 0;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _go(int delta) {
+    final target = (_index + delta).clamp(0, widget.items.length - 1);
+    _controller.animateToPage(target,
+        duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = widget.items;
+    final many = items.length > 1;
+    return Stack(fit: StackFit.expand, children: [
+      PageView.builder(
+        controller: _controller,
+        itemCount: items.length,
+        onPageChanged: (i) => setState(() => _index = i),
+        itemBuilder: (_, i) => GestureDetector(
+          onTap: () => widget.onTap(i),
+          child: CachedNetworkImage(
+            imageUrl: items[i].url,
+            fit: BoxFit.cover,
+            placeholder: (_, __) => const ColoredBox(color: AppTheme.primaryDeep),
+            errorWidget: (_, __, ___) => const DecoratedBox(
+              decoration: BoxDecoration(gradient: AppTheme.heroGradient),
+              child: Center(child: Icon(Icons.broken_image_outlined, color: Colors.white54)),
+            ),
+          ),
+        ),
+      ),
+      // Degradado inferior para la legibilidad de indicadores y del AppBar
+      IgnorePointer(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Colors.black.withValues(alpha: 0.35),
+                Colors.transparent,
+                Colors.transparent,
+                Colors.black.withValues(alpha: 0.55),
+              ],
+              stops: const [0, 0.3, 0.6, 1],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+            ),
+          ),
+        ),
+      ),
+      if (many) ...[
+        Positioned(
+          left: 4,
+          top: 0,
+          bottom: 0,
+          child: Center(
+            child: _arrow(Icons.chevron_left, _index > 0 ? () => _go(-1) : null),
+          ),
+        ),
+        Positioned(
+          right: 4,
+          top: 0,
+          bottom: 0,
+          child: Center(
+            child: _arrow(Icons.chevron_right,
+                _index < items.length - 1 ? () => _go(1) : null),
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 12,
+          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            for (var i = 0; i < items.length; i++)
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                width: i == _index ? 18 : 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: i == _index ? 1 : 0.55),
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+          ]),
+        ),
+      ],
+      Positioned(
+        right: 12,
+        bottom: 10,
+        child: IgnorePointer(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.photo_library_outlined, size: 14, color: Colors.white),
+              const SizedBox(width: 5),
+              Text('${_index + 1}/${items.length}',
+                  style: const TextStyle(
+                      color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+            ]),
+          ),
+        ),
+      ),
+    ]);
+  }
+
+  Widget _arrow(IconData icon, VoidCallback? onTap) => AnimatedOpacity(
+        duration: const Duration(milliseconds: 150),
+        opacity: onTap == null ? 0 : 1,
+        child: Material(
+          color: Colors.black.withValues(alpha: 0.35),
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.all(4),
+              child: Icon(icon, color: Colors.white, size: 22),
+            ),
+          ),
+        ),
+      );
+}
+
+/// Visor a pantalla completa: fondo negro, zoom, pie de foto y cierre.
+class _PhotoViewer extends StatefulWidget {
+  final List<_GalleryItem> items;
+  final int initialIndex;
+  const _PhotoViewer({required this.items, required this.initialIndex});
+  @override
+  State<_PhotoViewer> createState() => _PhotoViewerState();
+}
+
+class _PhotoViewerState extends State<_PhotoViewer> {
+  late final PageController _controller = PageController(initialPage: widget.initialIndex);
+  late int _index = widget.initialIndex;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _go(int delta) {
+    final target = (_index + delta).clamp(0, widget.items.length - 1);
+    _controller.animateToPage(target,
+        duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = widget.items;
+    final caption = items[_index].caption;
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Stack(children: [
+          PageView.builder(
+            controller: _controller,
+            itemCount: items.length,
+            onPageChanged: (i) => setState(() => _index = i),
+            itemBuilder: (_, i) => InteractiveViewer(
+              minScale: 1,
+              maxScale: 4,
+              child: Center(
+                child: CachedNetworkImage(
+                  imageUrl: items[i].url,
+                  fit: BoxFit.contain,
+                  placeholder: (_, __) =>
+                      const Center(child: CircularProgressIndicator(color: Colors.white)),
+                  errorWidget: (_, __, ___) =>
+                      const Icon(Icons.broken_image_outlined, color: Colors.white54, size: 48),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 8,
+            left: 8,
+            child: IconButton.filledTonal(
+              style: IconButton.styleFrom(
+                  backgroundColor: Colors.white.withValues(alpha: 0.15),
+                  foregroundColor: Colors.white),
+              onPressed: () => Navigator.of(context).pop(),
+              icon: const Icon(Icons.close),
+              tooltip: 'Cerrar',
+            ),
+          ),
+          Positioned(
+            top: 16,
+            right: 16,
+            child: Text('${_index + 1} / ${items.length}',
+                style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600)),
+          ),
+          if (items.length > 1) ...[
+            Positioned(
+              left: 8,
+              top: 0,
+              bottom: 0,
+              child: Center(
+                child: IconButton(
+                  onPressed: _index > 0 ? () => _go(-1) : null,
+                  icon: const Icon(Icons.chevron_left, color: Colors.white, size: 32),
+                ),
+              ),
+            ),
+            Positioned(
+              right: 8,
+              top: 0,
+              bottom: 0,
+              child: Center(
+                child: IconButton(
+                  onPressed: _index < items.length - 1 ? () => _go(1) : null,
+                  icon: const Icon(Icons.chevron_right, color: Colors.white, size: 32),
+                ),
+              ),
+            ),
+          ],
+          if ((caption ?? '').isNotEmpty)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.transparent, Colors.black.withValues(alpha: 0.75)],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                ),
+                child: Text(caption!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white, fontSize: 15)),
+              ),
+            ),
+        ]),
+      ),
+    );
+  }
+}
+
+// ============================================================ TabBar fija
 
 class _TabBarDelegate extends SliverPersistentHeaderDelegate {
   final TabBar tabBar;

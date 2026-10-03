@@ -1,6 +1,9 @@
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException, StorageException;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../app_theme.dart';
@@ -11,9 +14,11 @@ import '../../utils/friendly_errors.dart';
 import '../../widgets/admin_widgets.dart';
 import '../../widgets/common.dart';
 
-/// Ajustes del negocio: datos, fiscal, reservas, sedes, avisos y página pública.
+/// Ajustes del negocio: datos, fotos y perfil, fiscal, reservas, sedes,
+/// avisos y página pública.
 class SettingsScreen extends StatefulWidget {
-  /// 0 Negocio · 1 Fiscal · 2 Reservas · 3 Sedes · 4 Avisos · 5 Página pública
+  /// 0 Negocio · 1 Fotos y perfil · 2 Fiscal · 3 Reservas · 4 Sedes ·
+  /// 5 Avisos · 6 Página pública
   final int initialTab;
   const SettingsScreen({super.key, this.initialTab = 0});
   @override
@@ -24,7 +29,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     with SingleTickerProviderStateMixin {
   final session = AppSession.instance;
   late final TabController _tabs =
-      TabController(length: 6, vsync: this, initialIndex: widget.initialTab.clamp(0, 5));
+      TabController(length: 7, vsync: this, initialIndex: widget.initialTab.clamp(0, 6));
 
   @override
   void initState() {
@@ -55,6 +60,7 @@ class _SettingsScreenState extends State<SettingsScreen>
           tabAlignment: TabAlignment.start,
           tabs: const [
             Tab(text: 'Negocio'),
+            Tab(text: 'Fotos y perfil'),
             Tab(text: 'Fiscal'),
             Tab(text: 'Reservas'),
             Tab(text: 'Sedes'),
@@ -67,6 +73,7 @@ class _SettingsScreenState extends State<SettingsScreen>
         controller: _tabs,
         children: [
           _BusinessTab(key: ValueKey('biz-${b.id}'), business: b),
+          _MediaTab(key: ValueKey('media-${b.id}'), business: b),
           _FiscalTab(key: ValueKey('fiscal-${b.id}'), business: b),
           _BookingTab(key: ValueKey('booking-${b.id}'), business: b),
           _LocationsTab(key: ValueKey('loc-${b.id}'), business: b),
@@ -130,14 +137,12 @@ class _BusinessTabState extends State<_BusinessTab> {
   late final _email = TextEditingController(text: widget.business.email ?? '');
   late final _website = TextEditingController(text: widget.business.website ?? '');
   late final _instagram = TextEditingController(text: widget.business.instagram ?? '');
-  late final _logo = TextEditingController(text: widget.business.logoUrl ?? '');
-  late final _cover = TextEditingController(text: widget.business.coverUrl ?? '');
   late String _sectorId = widget.business.sectorId;
   bool _saving = false;
 
   @override
   void dispose() {
-    for (final c in [_name, _description, _phone, _email, _website, _instagram, _logo, _cover]) {
+    for (final c in [_name, _description, _phone, _email, _website, _instagram]) {
       c.dispose();
     }
     super.dispose();
@@ -156,8 +161,6 @@ class _BusinessTabState extends State<_BusinessTab> {
       'email': _nullIfEmpty(_email),
       'website': _nullIfEmpty(_website),
       'instagram': _nullIfEmpty(_instagram)?.replaceAll('@', ''),
-      'logo_url': _nullIfEmpty(_logo),
-      'cover_url': _nullIfEmpty(_cover),
       'sector_id': _sectorId,
     });
     if (mounted) setState(() => _saving = false);
@@ -217,46 +220,10 @@ class _BusinessTabState extends State<_BusinessTab> {
         ]),
       ]),
       const SizedBox(height: 12),
-      FormCard(title: 'Imagen', children: [
-        ResponsiveFields(children: [
-          TextField(
-            controller: _logo,
-            keyboardType: TextInputType.url,
-            decoration: const InputDecoration(labelText: 'URL del logo'),
-            onChanged: (_) => setState(() {}),
-          ),
-          TextField(
-            controller: _cover,
-            keyboardType: TextInputType.url,
-            decoration: const InputDecoration(labelText: 'URL de portada'),
-            onChanged: (_) => setState(() {}),
-          ),
-        ]),
-        const SizedBox(height: 12),
-        Row(children: [
-          AvatarCircle(
-              url: _logo.text.trim().isEmpty ? null : _logo.text.trim(),
-              initials: b.name.isEmpty ? '?' : b.name[0],
-              radius: 28),
-          const SizedBox(width: 12),
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: Container(
-                height: 72,
-                color: t.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                child: _cover.text.trim().isEmpty
-                    ? Center(
-                        child: Text('Sin portada',
-                            style: t.textTheme.bodySmall?.copyWith(color: t.colorScheme.outline)))
-                    : Image.network(_cover.text.trim(),
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const Center(child: Icon(Icons.broken_image_outlined))),
-              ),
-            ),
-          ),
-        ]),
-      ]),
+      const InfoCard(
+        'El logo, la portada y la galería de fotos se gestionan en la pestaña "Fotos y perfil".',
+        icon: Icons.photo_library_outlined,
+      ),
       const SizedBox(height: 12),
       Card(
         child: ListTile(
@@ -287,6 +254,663 @@ class _BusinessTabState extends State<_BusinessTab> {
       default:
         return 'Free';
     }
+  }
+}
+
+// ============================================================ Fotos y perfil
+
+const _maxImageBytes = 8 * 1024 * 1024;
+const _migrationHint = 'Ejecuta la migración 002_business_profile.sql en Supabase';
+
+/// Iconos de comodidades como constantes `Icons.*` (el tree-shaking de
+/// iconos exige code points constantes; `amenityCatalog` solo guarda el int).
+const _amenityIcons = <String, IconData>{
+  'wifi': Icons.wifi,
+  'parking': Icons.local_parking,
+  'accessible': Icons.accessible,
+  'card': Icons.credit_card,
+  'online_payment': Icons.credit_card,
+  'kids': Icons.child_care,
+  'pets': Icons.pets,
+  'air_conditioning': Icons.ac_unit,
+  'home_service': Icons.home,
+  'late_hours': Icons.schedule,
+};
+
+const _languageLabels = <String, String>{
+  'es': 'Español',
+  'en': 'Inglés',
+  'ca': 'Català',
+  'fr': 'Francés',
+  'de': 'Alemán',
+};
+
+/// Detecta errores que delatan que la migración 002 no está aplicada
+/// (tabla/columna/RPC inexistente o bucket de Storage ausente).
+bool _isMigrationMissing(Object e) {
+  if (e is StorageException) {
+    final m = e.message.toLowerCase();
+    return m.contains('bucket') || e.statusCode == '404';
+  }
+  if (e is PostgrestException) {
+    const codes = {'42P01', '42703', 'PGRST202', 'PGRST204'};
+    if (codes.contains(e.code)) return true;
+    final m = e.message.toLowerCase();
+    return m.contains('business_photos') ||
+        m.contains('does not exist') ||
+        m.contains('schema cache');
+  }
+  return false;
+}
+
+void _mediaError(BuildContext context, Object e) =>
+    showSnack(context, _isMigrationMissing(e) ? _migrationHint : friendlyError(e), error: true);
+
+class _MediaTab extends StatefulWidget {
+  final Business business;
+  const _MediaTab({super.key, required this.business});
+  @override
+  State<_MediaTab> createState() => _MediaTabState();
+}
+
+class _MediaTabState extends State<_MediaTab> {
+  final session = AppSession.instance;
+
+  // Galería
+  List<BusinessPhoto> _photos = [];
+  bool _loadingPhotos = true;
+  String? _photosError;
+  String? _uploadProgress;
+
+  // Logo / portada
+  String? _busyFolder;
+
+  // Perfil
+  late final _tagline = TextEditingController(text: widget.business.tagline ?? '');
+  late final _facebook = TextEditingController(text: widget.business.facebook ?? '');
+  late final _tiktok = TextEditingController(text: widget.business.tiktok ?? '');
+  late final _whatsapp = TextEditingController(text: widget.business.whatsapp ?? '');
+  late final Set<String> _amenities = {...widget.business.amenities};
+  late final Set<String> _payments = {...widget.business.paymentMethods};
+  late final Set<String> _languages = {...widget.business.languages};
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPhotos();
+  }
+
+  @override
+  void dispose() {
+    for (final c in [_tagline, _facebook, _tiktok, _whatsapp]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  // ---------- Galería ----------
+
+  Future<void> _loadPhotos() async {
+    setState(() {
+      _loadingPhotos = true;
+      _photosError = null;
+    });
+    try {
+      final p = await session.biz.fetchPhotos(widget.business.id);
+      if (!mounted) return;
+      setState(() => _photos = p);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _photosError = _isMigrationMissing(e) ? _migrationHint : friendlyError(e));
+    } finally {
+      if (mounted) setState(() => _loadingPhotos = false);
+    }
+  }
+
+  Future<void> _addPhotos() async {
+    List<PlatformFile> files;
+    try {
+      files = await FilePicker.pickFiles(type: FileType.image);
+    } catch (e) {
+      if (mounted) showSnack(context, friendlyError(e), error: true);
+      return;
+    }
+    if (files.isEmpty || !mounted) return;
+    var nextOrder = _photos.isEmpty
+        ? 1
+        : _photos.map((p) => p.sortOrder).reduce((a, b) => a > b ? a : b) + 1;
+    var uploaded = 0;
+    var skipped = 0;
+    try {
+      for (var i = 0; i < files.length; i++) {
+        if (!mounted) return;
+        setState(() => _uploadProgress = 'Subiendo ${i + 1}/${files.length}…');
+        final f = files[i];
+        final bytes = await f.readAsBytes();
+        if (bytes.length > _maxImageBytes) {
+          skipped++;
+          continue;
+        }
+        final url = await session.biz.uploadImage(
+            businessId: widget.business.id, bytes: bytes, fileName: f.name, folder: 'gallery');
+        await session.biz.addPhoto(widget.business.id, url, sortOrder: nextOrder++);
+        uploaded++;
+      }
+      if (!mounted) return;
+      showSnack(
+          context,
+          skipped == 0
+              ? '$uploaded ${uploaded == 1 ? 'foto subida' : 'fotos subidas'}'
+              : '$uploaded subidas · $skipped omitidas por superar 8 MB');
+    } catch (e) {
+      if (mounted) _mediaError(context, e);
+    } finally {
+      if (mounted) {
+        setState(() => _uploadProgress = null);
+        await _loadPhotos();
+        try {
+          await session.refreshActiveBusiness();
+        } catch (_) {}
+      }
+    }
+  }
+
+  Future<void> _editCaption(BusinessPhoto p) async {
+    final text = await _askText(context,
+        title: 'Pie de foto', initial: p.caption ?? '', hint: 'Sala de espera, recepción…', maxLength: 80);
+    if (text == null || !mounted) return;
+    try {
+      await session.biz.updatePhoto(p.id, {'caption': text.isEmpty ? null : text});
+      await _loadPhotos();
+    } catch (e) {
+      if (mounted) _mediaError(context, e);
+    }
+  }
+
+  Future<void> _deletePhoto(BusinessPhoto p) async {
+    final ok = await confirmDialog(context,
+        title: 'Eliminar foto',
+        message: '¿Quitar esta foto de la galería? La imagen seguirá en el almacenamiento.',
+        confirmLabel: 'Eliminar',
+        destructive: true);
+    if (!ok || !mounted) return;
+    try {
+      await session.biz.deletePhoto(p.id);
+      await _loadPhotos();
+      await session.refreshActiveBusiness();
+    } catch (e) {
+      if (mounted) _mediaError(context, e);
+    }
+  }
+
+  /// Mueve la foto [index] una posición y renumera `sort_order` (1..n) para
+  /// que el orden sea estable aunque varias fotos compartan el valor inicial.
+  Future<void> _movePhoto(int index, int delta) async {
+    final target = index + delta;
+    if (target < 0 || target >= _photos.length) return;
+    final list = [..._photos];
+    final item = list.removeAt(index);
+    list.insert(target, item);
+    try {
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].sortOrder != i + 1) {
+          await session.biz.updatePhoto(list[i].id, {'sort_order': i + 1});
+        }
+      }
+      await _loadPhotos();
+      await session.refreshActiveBusiness();
+    } catch (e) {
+      if (mounted) _mediaError(context, e);
+    }
+  }
+
+  // ---------- Logo / portada ----------
+
+  Future<void> _setImage(String column, String? url) async {
+    try {
+      await session.biz.updateBusiness(widget.business.id, {column: url});
+      await session.refreshActiveBusiness();
+    } catch (e) {
+      if (mounted) _mediaError(context, e);
+    }
+  }
+
+  Future<void> _uploadImage(String folder, String column) async {
+    PlatformFile? file;
+    try {
+      file = await FilePicker.pickFile(type: FileType.image);
+    } catch (e) {
+      if (mounted) showSnack(context, friendlyError(e), error: true);
+      return;
+    }
+    if (file == null || !mounted) return;
+    setState(() => _busyFolder = folder);
+    try {
+      final bytes = await file.readAsBytes();
+      if (bytes.length > _maxImageBytes) {
+        if (mounted) showSnack(context, 'La imagen supera 8 MB. Reduce su tamaño.', error: true);
+        return;
+      }
+      final url = await session.biz.uploadImage(
+          businessId: widget.business.id, bytes: bytes, fileName: file.name, folder: folder);
+      await _setImage(column, url);
+      if (mounted) showSnack(context, 'Imagen actualizada');
+    } catch (e) {
+      if (mounted) _mediaError(context, e);
+    } finally {
+      if (mounted) setState(() => _busyFolder = null);
+    }
+  }
+
+  Future<void> _useUrl(String column, String? current) async {
+    final text = await _askText(context,
+        title: 'Usar una URL', initial: current ?? '', hint: 'https://…', keyboard: TextInputType.url);
+    if (text == null || !mounted) return;
+    await _setImage(column, text.isEmpty ? null : text);
+  }
+
+  // ---------- Perfil ----------
+
+  Future<void> _saveProfile() async {
+    setState(() => _saving = true);
+    final whatsapp = _nullIfEmpty(_whatsapp)?.replaceAll(RegExp(r'[\s\-().]'), '');
+    try {
+      await session.biz.updateBusiness(widget.business.id, {
+        'tagline': _nullIfEmpty(_tagline),
+        'amenities': _amenities.toList(),
+        'payment_methods': _payments.toList(),
+        'languages': _languages.toList(),
+        'facebook': _nullIfEmpty(_facebook)?.replaceAll('@', ''),
+        'tiktok': _nullIfEmpty(_tiktok)?.replaceAll('@', ''),
+        'whatsapp': whatsapp,
+      });
+      await session.refreshActiveBusiness();
+      if (!mounted) return;
+      showSnack(context, 'Perfil guardado');
+    } catch (e) {
+      if (mounted) _mediaError(context, e);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  // ---------- UI ----------
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final b = widget.business;
+    return _tabBody([
+      FormCard(title: 'Logo y portada', children: [
+        ResponsiveFields(children: [
+          _ImageTile(
+            label: 'Logo',
+            hint: 'Cuadrado, mín. 400×400',
+            url: b.logoUrl,
+            square: true,
+            busy: _busyFolder == 'logo',
+            onUpload: () => _uploadImage('logo', 'logo_url'),
+            onUrl: () => _useUrl('logo_url', b.logoUrl),
+            onRemove: (b.logoUrl ?? '').isEmpty ? null : () => _setImage('logo_url', null),
+          ),
+          _ImageTile(
+            label: 'Portada',
+            hint: 'Apaisada 16:9, mín. 1200 px de ancho',
+            url: b.coverUrl,
+            square: false,
+            busy: _busyFolder == 'cover',
+            onUpload: () => _uploadImage('cover', 'cover_url'),
+            onUrl: () => _useUrl('cover_url', b.coverUrl),
+            onRemove: (b.coverUrl ?? '').isEmpty ? null : () => _setImage('cover_url', null),
+          ),
+        ]),
+        const SizedBox(height: 10),
+        Text('JPG, PNG o WebP, máx. 8 MB.',
+            style: t.textTheme.bodySmall?.copyWith(color: t.colorScheme.outline)),
+      ]),
+      const SizedBox(height: 12),
+      FormCard(
+        title: 'Galería',
+        trailing: _uploadProgress != null
+            ? Row(mainAxisSize: MainAxisSize.min, children: [
+                const SizedBox(
+                    width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                const SizedBox(width: 8),
+                Text(_uploadProgress!, style: t.textTheme.bodySmall),
+              ])
+            : TextButton.icon(
+                onPressed: _addPhotos,
+                icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
+                label: const Text('Añadir fotos'),
+              ),
+        children: [
+          if (_loadingPhotos)
+            const Padding(padding: EdgeInsets.all(24), child: LoadingView())
+          else if (_photosError != null)
+            InfoCard(_photosError!, icon: Icons.warning_amber_rounded, color: AppTheme.warning)
+          else if (_photos.isEmpty)
+            const InlineEmpty(
+                'Sin fotos todavía. Las fotos del local y de tus trabajos multiplican las reservas.')
+          else
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 200,
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                childAspectRatio: 1,
+              ),
+              itemCount: _photos.length,
+              itemBuilder: (_, i) => _PhotoTile(
+                photo: _photos[i],
+                isFirst: i == 0,
+                isLast: i == _photos.length - 1,
+                onCaption: () => _editCaption(_photos[i]),
+                onUp: () => _movePhoto(i, -1),
+                onDown: () => _movePhoto(i, 1),
+                onDelete: () => _deletePhoto(_photos[i]),
+              ),
+            ),
+          const SizedBox(height: 10),
+          Text('La primera foto se usa como portada si no has subido una. JPG, PNG o WebP, máx. 8 MB.',
+              style: t.textTheme.bodySmall?.copyWith(color: t.colorScheme.outline)),
+        ],
+      ),
+      const SizedBox(height: 12),
+      FormCard(title: 'Perfil', children: [
+        TextField(
+          controller: _tagline,
+          maxLength: 80,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+              labelText: 'Frase corta (tagline)',
+              hintText: 'Color, corte y cuidado capilar en el centro'),
+        ),
+        const SizedBox(height: 8),
+        Text('Comodidades', style: t.textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          for (final a in amenityCatalog)
+            FilterChip(
+              avatar: Icon(_amenityIcons[a.id] ?? Icons.check_circle_outline, size: 18),
+              label: Text(a.label),
+              selected: _amenities.contains(a.id),
+              onSelected: (v) => setState(() => v ? _amenities.add(a.id) : _amenities.remove(a.id)),
+            ),
+        ]),
+        const SizedBox(height: 16),
+        Text('Formas de pago', style: t.textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          for (final e in paymentMethodLabels.entries)
+            FilterChip(
+              label: Text(e.value),
+              selected: _payments.contains(e.key),
+              onSelected: (v) => setState(() => v ? _payments.add(e.key) : _payments.remove(e.key)),
+            ),
+        ]),
+        const SizedBox(height: 16),
+        Text('Idiomas de atención', style: t.textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          for (final e in _languageLabels.entries)
+            FilterChip(
+              label: Text(e.value),
+              selected: _languages.contains(e.key),
+              onSelected: (v) => setState(() => v ? _languages.add(e.key) : _languages.remove(e.key)),
+            ),
+        ]),
+        const SizedBox(height: 16),
+        Text('Redes sociales', style: t.textTheme.titleSmall),
+        const SizedBox(height: 8),
+        ResponsiveFields(children: [
+          TextField(
+            controller: _facebook,
+            decoration: const InputDecoration(
+                labelText: 'Facebook', hintText: 'nombre de la página', prefixText: 'facebook.com/'),
+          ),
+          TextField(
+            controller: _tiktok,
+            decoration: const InputDecoration(labelText: 'TikTok', prefixText: '@'),
+          ),
+          TextField(
+            controller: _whatsapp,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(
+                labelText: 'WhatsApp',
+                hintText: '+34600111222',
+                helperText: 'Formato internacional (E.164): +34 y el número sin espacios'),
+          ),
+        ]),
+      ]),
+      const SizedBox(height: 20),
+      _saveButton(_saving, _saveProfile),
+    ]);
+  }
+}
+
+/// Diálogo con un campo de texto. Devuelve null si se cancela.
+Future<String?> _askText(BuildContext context,
+    {required String title,
+    String initial = '',
+    String? hint,
+    int? maxLength,
+    TextInputType? keyboard}) {
+  final c = TextEditingController(text: initial);
+  return showDialog<String>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(title),
+      content: SizedBox(
+        width: 420,
+        child: TextField(
+          controller: c,
+          autofocus: true,
+          maxLength: maxLength,
+          keyboardType: keyboard,
+          decoration: InputDecoration(hintText: hint),
+          onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+        FilledButton(
+            onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('Aceptar')),
+      ],
+    ),
+  ).whenComplete(c.dispose);
+}
+
+/// Previsualización de logo/portada con acciones Subir · URL · Quitar.
+class _ImageTile extends StatelessWidget {
+  final String label;
+  final String hint;
+  final String? url;
+  final bool square;
+  final bool busy;
+  final VoidCallback onUpload;
+  final VoidCallback onUrl;
+  final VoidCallback? onRemove;
+  const _ImageTile({
+    required this.label,
+    required this.hint,
+    required this.url,
+    required this.square,
+    required this.busy,
+    required this.onUpload,
+    required this.onUrl,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final has = (url ?? '').isNotEmpty;
+    final preview = ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: square ? 96 : null,
+        height: 96,
+        color: t.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+        child: busy
+            ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+            : has
+                ? CachedNetworkImage(
+                    imageUrl: url!,
+                    fit: BoxFit.cover,
+                    errorWidget: (_, __, ___) =>
+                        Icon(Icons.broken_image_outlined, color: t.colorScheme.outline))
+                : Icon(square ? Icons.storefront_outlined : Icons.panorama_outlined,
+                    color: t.colorScheme.outline, size: 32),
+      ),
+    );
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(label, style: t.textTheme.titleSmall),
+      const SizedBox(height: 2),
+      Text(hint, style: t.textTheme.bodySmall?.copyWith(color: t.colorScheme.outline)),
+      const SizedBox(height: 8),
+      square ? preview : SizedBox(width: double.infinity, child: preview),
+      const SizedBox(height: 8),
+      Wrap(spacing: 6, runSpacing: 6, children: [
+        FilledButton.tonalIcon(
+          style: FilledButton.styleFrom(minimumSize: const Size(0, 36)),
+          onPressed: busy ? null : onUpload,
+          icon: const Icon(Icons.upload_outlined, size: 18),
+          label: const Text('Subir'),
+        ),
+        OutlinedButton(
+          style: OutlinedButton.styleFrom(minimumSize: const Size(0, 36)),
+          onPressed: busy ? null : onUrl,
+          child: const Text('Usar URL'),
+        ),
+        if (onRemove != null)
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: AppTheme.danger),
+            onPressed: busy ? null : onRemove,
+            child: const Text('Quitar'),
+          ),
+      ]),
+    ]);
+  }
+}
+
+/// Foto de la galería con pie editable y menú (orden, eliminar).
+class _PhotoTile extends StatelessWidget {
+  final BusinessPhoto photo;
+  final bool isFirst;
+  final bool isLast;
+  final VoidCallback onCaption;
+  final VoidCallback onUp;
+  final VoidCallback onDown;
+  final VoidCallback onDelete;
+  const _PhotoTile({
+    required this.photo,
+    required this.isFirst,
+    required this.isLast,
+    required this.onCaption,
+    required this.onUp,
+    required this.onDown,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final caption = photo.caption ?? '';
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Stack(fit: StackFit.expand, children: [
+        CachedNetworkImage(
+          imageUrl: photo.url,
+          fit: BoxFit.cover,
+          placeholder: (_, __) =>
+              ColoredBox(color: t.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6)),
+          errorWidget: (_, __, ___) => ColoredBox(
+            color: t.colorScheme.surfaceContainerHighest,
+            child: Icon(Icons.broken_image_outlined, color: t.colorScheme.outline),
+          ),
+        ),
+        Material(
+          color: Colors.transparent,
+          child: InkWell(onTap: onCaption, child: const SizedBox.expand()),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: IgnorePointer(
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(8, 16, 8, 6),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.transparent, Colors.black.withValues(alpha: 0.7)],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+              child: Text(
+                caption.isEmpty ? 'Añadir pie de foto' : caption,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    color: caption.isEmpty ? Colors.white70 : Colors.white,
+                    fontSize: 12,
+                    fontStyle: caption.isEmpty ? FontStyle.italic : FontStyle.normal,
+                    fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+        ),
+        if (isFirst)
+          Positioned(
+            left: 6,
+            top: 6,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Text('Portada',
+                  style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+            ),
+          ),
+        Positioned(
+          right: 2,
+          top: 2,
+          child: Material(
+            color: Colors.black.withValues(alpha: 0.45),
+            shape: const CircleBorder(),
+            child: PopupMenuButton<String>(
+              iconColor: Colors.white,
+              tooltip: 'Opciones',
+              onSelected: (v) {
+                switch (v) {
+                  case 'caption':
+                    onCaption();
+                  case 'up':
+                    onUp();
+                  case 'down':
+                    onDown();
+                  case 'delete':
+                    onDelete();
+                }
+              },
+              itemBuilder: (_) => [
+                const PopupMenuItem(value: 'caption', child: Text('Editar pie de foto')),
+                if (!isFirst) const PopupMenuItem(value: 'up', child: Text('Mover antes')),
+                if (!isLast) const PopupMenuItem(value: 'down', child: Text('Mover después')),
+                const PopupMenuItem(
+                    value: 'delete',
+                    child: Text('Eliminar', style: TextStyle(color: AppTheme.danger))),
+              ],
+            ),
+          ),
+        ),
+      ]),
+    );
   }
 }
 
