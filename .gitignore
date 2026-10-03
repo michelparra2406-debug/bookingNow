@@ -1,0 +1,39 @@
+# Secretos y credenciales (nunca al repositorio)
+supabase/*.txt
+supabase/.env
+*.json.secret
+**/google-services.json
+**/GoogleService-Info.plist
+**/*firebase-adminsdk*.json
+**/key.properties
+**/*.jks
+**/*.keystore
+**/*.p12
+**/*.pem
+
+# Flutter / Dart
+bookingnow_app/.dart_tool/
+bookingnow_app/.flutter-plugins
+bookingnow_app/.flutter-plugins-dependencies
+bookingnow_app/.packages
+bookingnow_app/build/
+bookingnow_app/.idea/
+bookingnow_app/*.iml
+bookingnow_app/android/.gradle/
+bookingnow_app/android/.kotlin/
+bookingnow_app/android/local.properties
+bookingnow_app/ios/Pods/
+bookingnow_app/ios/.symlinks/
+bookingnow_app/ios/Flutter/ephemeral/
+bookingnow_app/macos/
+bookingnow_app/linux/
+bookingnow_app/windows/
+
+# Sistema
+.DS_Store
+Thumbs.db
+*.log
+
+# IDE
+bookingnow_app/.idea/
+bookingnow_app/android/build/

@@ -1,0 +1,123 @@
+# Codemagic CI — compila BookingNow (Android, iOS y panel web)
+# Docs: https://docs.codemagic.io/yaml/yaml-getting-started/
+#
+# Variables de entorno (grupo "bookingnow"):
+#   SUPABASE_URL, SUPABASE_ANON_KEY, PUBLIC_BOOKING_HOST, STRIPE_PUBLISHABLE_KEY
+# Firma Android (grupo "android_signing"):
+#   CM_KEYSTORE (base64), CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD
+
+definitions:
+  env: &env
+    flutter: 3.44.5
+    groups:
+      - bookingnow
+  dart_defines: &dart_defines >-
+    --dart-define=SUPABASE_URL=$SUPABASE_URL
+    --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
+    --dart-define=PUBLIC_BOOKING_HOST=$PUBLIC_BOOKING_HOST
+    --dart-define=STRIPE_PUBLISHABLE_KEY=$STRIPE_PUBLISHABLE_KEY
+
+workflows:
+  android:
+    name: Android APK / AAB
+    instance_type: linux_x2
+    max_build_duration: 30
+    working_directory: bookingnow_app
+    environment:
+      <<: *env
+      groups:
+        - bookingnow
+        - android_signing
+    scripts:
+      - name: Restaurar keystore (si existe)
+        script: |
+          if [ -n "${CM_KEYSTORE:-}" ]; then
+            echo "$CM_KEYSTORE" | base64 --decode > android/app/upload-keystore.jks
+            cat > android/key.properties <<EOF
+          storePassword=$CM_KEYSTORE_PASSWORD
+          keyPassword=$CM_KEY_PASSWORD
+          keyAlias=$CM_KEY_ALIAS
+          storeFile=upload-keystore.jks
+          EOF
+          fi
+      - name: Dependencias
+        script: flutter pub get
+      - name: Análisis y tests
+        script: flutter analyze && flutter test
+      - name: Compilar
+        script: |
+          flutter build apk --release ${DART_DEFINES}
+          flutter build appbundle --release ${DART_DEFINES}
+        env:
+          DART_DEFINES: *dart_defines
+    artifacts:
+      - bookingnow_app/build/app/outputs/flutter-apk/app-release.apk
+      - bookingnow_app/build/app/outputs/bundle/release/app-release.aab
+
+  ios-sin-firma:
+    name: iOS (sin firma)
+    instance_type: mac_mini_m2
+    max_build_duration: 30
+    working_directory: bookingnow_app
+    environment: *env
+    scripts:
+      - name: Dependencias
+        script: flutter pub get
+      - name: Compilar iOS sin firma
+        script: flutter build ios --release --no-codesign ${DART_DEFINES}
+        env:
+          DART_DEFINES: *dart_defines
+      - name: Empaquetar IPA
+        script: |
+          cd build/ios/iphoneos
+          mkdir -p Payload && cp -r Runner.app Payload/
+          zip -qr BookingNow-sin-firma.ipa Payload
+    artifacts:
+      - bookingnow_app/build/ios/iphoneos/BookingNow-sin-firma.ipa
+
+  ios-testflight:
+    name: iOS → TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    working_directory: bookingnow_app
+    integrations:
+      app_store_connect: bookingnow-asc
+    environment:
+      <<: *env
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.bookingnow.app
+    scripts:
+      - name: Dependencias
+        script: flutter pub get
+      - name: Compilar IPA firmado
+        script: flutter build ipa --release ${DART_DEFINES}
+        env:
+          DART_DEFINES: *dart_defines
+    artifacts:
+      - bookingnow_app/build/ios/ipa/*.ipa
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+
+  # Panel web de administración (la misma app compilada para web).
+  # Despliega el directorio build/web en Netlify, Vercel, Cloudflare Pages
+  # o Supabase Storage + CDN.
+  web-admin:
+    name: Panel web
+    instance_type: linux_x2
+    max_build_duration: 20
+    working_directory: bookingnow_app
+    environment: *env
+    scripts:
+      - name: Dependencias
+        script: flutter pub get
+      - name: Compilar web
+        script: flutter build web --release --base-href / ${DART_DEFINES}
+        env:
+          DART_DEFINES: *dart_defines
+      - name: Empaquetar
+        script: cd build && zip -qr web-admin.zip web
+    artifacts:
+      - bookingnow_app/build/web-admin.zip

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web-admin",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["tools/serve_web.js"],
+      "port": 8787
+    }
+  ]
+}
