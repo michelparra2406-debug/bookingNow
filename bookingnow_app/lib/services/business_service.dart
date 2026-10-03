@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/models.dart';
@@ -54,6 +56,43 @@ class BusinessService {
         .eq('business_id', businessId).order('is_default', ascending: false);
     return (data as List).map((m) => Location.fromMap(m)).toList();
   }
+
+  // ---------- Galería y multimedia ----------
+
+  Future<List<BusinessPhoto>> fetchPhotos(String businessId) async {
+    final data = await _client.from('business_photos').select()
+        .eq('business_id', businessId).order('sort_order').order('created_at');
+    return (data as List).map((m) => BusinessPhoto.fromMap(m)).toList();
+  }
+
+  /// Sube una imagen al bucket público `business-media` y devuelve su URL.
+  /// Ruta: <business_id>/<carpeta>/<timestamp>.<ext> (las políticas de Storage
+  /// comprueban que el usuario es owner/manager del negocio de la carpeta).
+  Future<String> uploadImage({
+    required String businessId,
+    required List<int> bytes,
+    required String fileName,
+    String folder = 'gallery',
+  }) async {
+    final ext = fileName.contains('.') ? fileName.split('.').last.toLowerCase() : 'jpg';
+    final mime = ext == 'png' ? 'image/png' : ext == 'webp' ? 'image/webp' : 'image/jpeg';
+    final path = '$businessId/$folder/${DateTime.now().millisecondsSinceEpoch}.$ext';
+    await _client.storage.from('business-media').uploadBinary(
+        path, Uint8List.fromList(bytes), fileOptions: FileOptions(contentType: mime, upsert: true));
+    return _client.storage.from('business-media').getPublicUrl(path);
+  }
+
+  Future<BusinessPhoto> addPhoto(String businessId, String url, {String? caption, int sortOrder = 100}) async {
+    final data = await _client.from('business_photos').insert({
+      'business_id': businessId, 'url': url, 'caption': caption, 'sort_order': sortOrder,
+    }).select().single();
+    return BusinessPhoto.fromMap(data);
+  }
+
+  Future<void> updatePhoto(String id, Map<String, dynamic> fields) =>
+      _client.from('business_photos').update(fields).eq('id', id);
+
+  Future<void> deletePhoto(String id) => _client.from('business_photos').delete().eq('id', id);
 
   Future<void> upsertLocation(Map<String, dynamic> fields) =>
       _client.from('locations').upsert(fields);

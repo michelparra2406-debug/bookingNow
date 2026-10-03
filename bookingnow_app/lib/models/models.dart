@@ -150,6 +150,15 @@ class Business {
   final double? lng;
   final int? minPriceCents;
   final int servicesCount;
+  // Perfil enriquecido (migración 002)
+  final List<String> amenities;
+  final List<String> paymentMethods;
+  final List<String> languages;
+  final String? tagline;
+  final String? facebook;
+  final String? tiktok;
+  final String? whatsapp;
+  final int photosCount;
 
   Business({
     required this.id,
@@ -192,6 +201,14 @@ class Business {
     this.lng,
     this.minPriceCents,
     this.servicesCount = 0,
+    this.amenities = const [],
+    this.paymentMethods = const ['cash', 'card'],
+    this.languages = const ['es'],
+    this.tagline,
+    this.facebook,
+    this.tiktok,
+    this.whatsapp,
+    this.photosCount = 0,
   });
 
   factory Business.fromMap(Map<String, dynamic> m) => Business(
@@ -236,6 +253,14 @@ class Business {
         minPriceCents:
             m['min_price_cents'] == null ? null : _int(m['min_price_cents']),
         servicesCount: _int(m['services_count']),
+        amenities: _strList(m['amenities']),
+        paymentMethods: m['payment_methods'] == null ? const ['cash', 'card'] : _strList(m['payment_methods']),
+        languages: m['languages'] == null ? const ['es'] : _strList(m['languages']),
+        tagline: m['tagline'],
+        facebook: m['facebook'],
+        tiktok: m['tiktok'],
+        whatsapp: m['whatsapp'],
+        photosCount: _int(m['photos_count']),
       );
 }
 
@@ -1269,3 +1294,66 @@ class AppNotification {
       bookingId: m['booking_id'],
       createdAt: _dt(m['created_at']) ?? DateTime.now());
 }
+
+// ---------------------------------------------------------------- Perfil enriquecido
+
+class BusinessPhoto {
+  final String id;
+  final String businessId;
+  final String url;
+  final String? caption;
+  final int sortOrder;
+  BusinessPhoto(
+      {required this.id,
+      required this.businessId,
+      required this.url,
+      this.caption,
+      this.sortOrder = 100});
+  factory BusinessPhoto.fromMap(Map<String, dynamic> m) => BusinessPhoto(
+      id: m['id'],
+      businessId: m['business_id'],
+      url: m['url'] ?? '',
+      caption: m['caption'],
+      sortOrder: _int(m['sort_order'], 100));
+}
+
+/// Horario público de apertura (unión del horario del equipo).
+class PublicHours {
+  final int weekday; // 0 = domingo … 6 = sábado
+  final String opens; // 'HH:mm'
+  final String closes;
+  PublicHours({required this.weekday, required this.opens, required this.closes});
+  factory PublicHours.fromMap(Map<String, dynamic> m) => PublicHours(
+      weekday: _int(m['weekday']),
+      opens: (m['opens'] ?? '').toString().substring(0, 5),
+      closes: (m['closes'] ?? '').toString().substring(0, 5));
+}
+
+/// Catálogo de comodidades que un negocio puede marcar.
+class Amenity {
+  final String id;
+  final String label;
+  final int iconCodePoint; // Icons.*.codePoint, para no depender de Flutter aquí
+  const Amenity(this.id, this.label, this.iconCodePoint);
+}
+
+const amenityCatalog = <Amenity>[
+  Amenity('wifi', 'Wi-Fi gratis', 0xe63e),             // Icons.wifi
+  Amenity('parking', 'Parking', 0xe54f),               // Icons.local_parking
+  Amenity('accessible', 'Accesible', 0xe914),          // Icons.accessible
+  Amenity('card', 'Pago con tarjeta', 0xe8a1),         // Icons.credit_card
+  Amenity('online_payment', 'Pago online', 0xe8a1),
+  Amenity('kids', 'Apto para niños', 0xe7f3),          // Icons.child_care
+  Amenity('pets', 'Admite mascotas', 0xe91d),          // Icons.pets
+  Amenity('air_conditioning', 'Aire acondicionado', 0xeb3c), // Icons.ac_unit
+  Amenity('home_service', 'Servicio a domicilio', 0xe88a),  // Icons.home
+  Amenity('late_hours', 'Horario ampliado', 0xe8b5),   // Icons.schedule
+];
+
+const paymentMethodLabels = <String, String>{
+  'cash': 'Efectivo',
+  'card': 'Tarjeta',
+  'bizum': 'Bizum',
+  'transfer': 'Transferencia',
+  'online': 'Pago online',
+};

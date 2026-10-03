@@ -67,6 +67,18 @@ class DataService {
     return (data as List).map((m) => Member.fromMap(m)).toList();
   }
 
+  Future<List<BusinessPhoto>> fetchPhotos(String businessId) async {
+    final data = await _client.from('business_photos').select()
+        .eq('business_id', businessId).order('sort_order').order('created_at');
+    return (data as List).map((m) => BusinessPhoto.fromMap(m)).toList();
+  }
+
+  /// Horario de apertura agregado (RPC pública para negocios publicados).
+  Future<List<PublicHours>> fetchPublicHours(String businessId) async {
+    final data = await _client.rpc('get_public_hours', params: {'p_business': businessId}) as List;
+    return data.map((m) => PublicHours.fromMap(m)).toList();
+  }
+
   Future<List<Review>> fetchReviews(String businessId, {int limit = 20}) async {
     final data = await _client.from('reviews').select('*, customers(full_name)')
         .eq('business_id', businessId).order('created_at', ascending: false).limit(limit);
